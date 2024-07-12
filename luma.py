@@ -29,6 +29,7 @@ class Generation(Base):
 
 class ErrCodes:
     NotLogin = 401
+    TooManyRequests = 429
     UnknownError = 500
 
 class MyError(Exception):
@@ -87,25 +88,34 @@ class Sdk:
         query = {"offset": "0", "limit": "10"}
         u = urlparse(url)
         u = u._replace(query=urlencode(query))
-        resp = self.send_get(urlunparse(u))
-        items = resp.json()
+        gi_list = []
 
-        gi_list: list[GenerationItem] = []
-        for item in items:
-            if 'video' in item and item['video'] is not None:
-                video = Video(**item['video'])
-            else:
-                video = None
-            gi = GenerationItem(
-                id=item['id'],
-                prompt=item['prompt'],
-                state=item['state'],
-                created_at=item['created_at'],
-                video=video,
-                liked=item.get('liked'),
-                estimate_wait_seconds=item.get('estimate_wait_seconds')
-            )
-            gi_list.append(gi)
+        for cookie in self.cookies:
+            try:
+                resp = self.send_get(urlunparse(u), cookies=[cookie])
+                items = resp.json()
+
+                for item in items:
+                    if 'video' in item and item['video'] is not None:
+                        video = Video(**item['video'])
+                    else:
+                        video = None
+                    gi = GenerationItem(
+                        id=item['id'],
+                        prompt=item['prompt'],
+                        state=item['state'],
+                        created_at=item['created_at'],
+                        video=video,
+                        liked=item.get('liked'),
+                        estimate_wait_seconds=item.get('estimate_wait_seconds')
+                    )
+                    gi_list.append(gi)
+            except MyError as e:
+                if e.code == ErrCodes.NotLogin or e.code == ErrCodes.TooManyRequests:
+                    logger.info(f"Skipping token due to error: {e.message}")
+                    self.remove_access_token(cookie['value'])
+                else:
+                    raise e
 
         return gi_list
 
@@ -176,10 +186,10 @@ class Sdk:
         self.update_cookies(cookies)
         return resp
 
-    def send_get(self, url, headers=None):
+    def send_get(self, url, headers=None, cookies=None):
         headers = headers or {}
         headers = {**self.headers, **headers}
-        headers['cookie'] = self.get_cookie_str()
+        headers['cookie'] = self.get_cookie_str(cookies)
         logger.info(f'sendGet url={url}')
         resp = requests.get(url, headers=headers)
         logger.debug(f'sendGet response({resp.status_code}), url={url}')
@@ -195,8 +205,10 @@ class Sdk:
         self.cookies = update_cookies(self.cookies, cookies)
         self.after_cookies_updated_callback(self.cookies)
 
-    def get_cookie_str(self):
-        return '; '.join([f'{ck["name"]}={ck["value"]}' for ck in self.cookies])
+    def get_cookie_str(self, cookies=None):
+        if cookies is None:
+            cookies = self.cookies
+        return '; '.join([f'{ck["name"]}={ck["value"]}' for ck in cookies])
 
     def get_filename(self, url):
         parsed_url = urlparse(url)
@@ -214,7 +226,6 @@ class Sdk:
             elif resp.status_code == 429:
                 text = resp.text
                 logger.info(f'checkResp status=429, text={text}')
-                self.remove_access_token()
                 raise MyError(ErrCodes.TooManyRequests, 'Too many requests, access token removed')
             else:
                 self.throw_resp_error(resp)
@@ -224,8 +235,8 @@ class Sdk:
         logger.info(f'checkResp status={resp.status_code} text={text[:1024]}')
         raise MyError(ErrCodes.UnknownError, f'HTTP {resp.status_code} {resp.reason}, body={text}')
 
-    def remove_access_token(self):
-        self.cookies = [ck for ck in self.cookies if ck['name'] != 'access_token']
+    def remove_access_token(self, access_token):
+        self.cookies = [ck for ck in self.cookies if ck['value'] != access_token]
 
     def usage(self):
         url = f'{self.API_BASE}/api/photon/v1/subscription/usage'
