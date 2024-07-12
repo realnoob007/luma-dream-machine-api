@@ -92,6 +92,7 @@ class Sdk:
 
         for cookie in self.cookies:
             try:
+                logger.info(f"Using token: {cookie['value']}")
                 resp = self.send_get(urlunparse(u), cookies=[cookie])
                 items = resp.json()
 
