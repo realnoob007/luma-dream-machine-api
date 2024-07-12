@@ -2,7 +2,6 @@ from typing import Union, Annotated, List
 
 from fastapi import FastAPI, Form, UploadFile, File, Response
 
-import settings
 from api_types import GenerationItem, GenerateResponseItem
 from luma import Sdk, Generation
 import tempfile
