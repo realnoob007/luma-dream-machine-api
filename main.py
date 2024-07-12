@@ -8,7 +8,6 @@ from luma import Sdk, Generation
 import tempfile
 import os
 
-
 app = FastAPI()
 sdk = Sdk(username='test', password='test', profile_root='./storage/profile/0')
 
@@ -25,15 +24,22 @@ def generate(
     user_prompt: Annotated[str, Form()],
     aspect_ratio: Annotated[str, Form()] = '16:9',
     image: Annotated[UploadFile, File()] = None,
+    image_end: Annotated[UploadFile, File()] = None,
     expand_prompt: Annotated[bool, Form()] = False
 ) -> str:
     image_path = None
+    image_end_path = None
     if image:
         suffix = os.path.splitext(image.filename)[1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
             tmp_file.write(image.file.read())
             image_path = tmp_file.name
-    return sdk.generate(user_prompt, image_path, aspect_ratio, expand_prompt)
+    if image_end:
+        suffix = os.path.splitext(image_end.filename)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(image_end.file.read())
+            image_end_path = tmp_file.name
+    return sdk.generate(user_prompt, image_path, image_end_path, aspect_ratio, expand_prompt)
 
 @app.get('/api/v1/generations')
 def get_generations() -> List[GenerationItem]:
@@ -49,7 +55,7 @@ def get_generation_by_id(id: str):
         return generation
     else:
         return Response(status_code=404, content='任务不存在或正在生成中')
-    
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,7 +1,6 @@
 from typing import List, Optional, Callable, Any
 from dataclasses import dataclass
 
-
 @dataclass
 class ExtendParams:
     image_url: str
@@ -9,13 +8,11 @@ class ExtendParams:
     expand_prompt: bool
     user_prompt: str
 
-
 @dataclass
 class Subscription:
     active: bool
     plan: str
     type: Any
-
 
 @dataclass
 class Plan:
@@ -25,7 +22,6 @@ class Plan:
     monthly_cost_in_cents: int
     yearly_cost_in_cents: int
 
-
 @dataclass
 class UsageResponse:
     consumed: int
@@ -34,7 +30,6 @@ class UsageResponse:
     subscription: Subscription
     plans: List[Plan]
 
-
 @dataclass
 class Video:
     url: str
@@ -42,22 +37,19 @@ class Video:
     height: int
     thumbnail: Any
 
-
 @dataclass
 class GenerationItem:
     id: str
     prompt: str
     state: str
     created_at: str
-    video: Video
+    video: Optional[Video]
     liked: Any
     estimate_wait_seconds: Any
-
 
 @dataclass
 class GenerateResponseItem:
     id: str
-
 
 @dataclass
 class ConstructorParams:
@@ -65,7 +57,6 @@ class ConstructorParams:
     profileRoot: str
     username: str
     password: str
-
 
 @dataclass
 class SendPostParams:
@@ -76,4 +67,3 @@ class SendPostParams:
     useProxy: Optional[bool] = None
     method: Optional[str] = None  # 'POST' or 'PUT'
     duplex: Optional[Any] = None
-

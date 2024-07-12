@@ -10,7 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
-from api_types import GenerationItem
+from api_types import GenerationItem, Video
 from util import update_cookies
 
 # Configure logging
@@ -92,12 +92,24 @@ class Sdk:
 
         gi_list: list[GenerationItem] = []
         for item in items:
-            gi = GenerationItem(**item)
+            if 'video' in item and item['video'] is not None:
+                video = Video(**item['video'])
+            else:
+                video = None
+            gi = GenerationItem(
+                id=item['id'],
+                prompt=item['prompt'],
+                state=item['state'],
+                created_at=item['created_at'],
+                video=video,
+                liked=item.get('liked'),
+                estimate_wait_seconds=item.get('estimate_wait_seconds')
+            )
             gi_list.append(gi)
 
         return gi_list
 
-    def prepare_generate(self, prompt, file_path=None, aspect_ratio="16:9", expand_prompt=True):
+    def prepare_generate(self, prompt, file_path=None, file_end_path=None, aspect_ratio="16:9", expand_prompt=False):
         url = f'{self.API_BASE}/api/photon/v1/generations/'
         payload = {
             "user_prompt": prompt,
@@ -106,11 +118,13 @@ class Sdk:
         }
         if file_path:
             payload['image_url'] = self.upload_image(file_path)
+        if file_end_path:
+            payload['image_end_url'] = self.upload_image(file_end_path)
         return payload
 
-    def generate(self, prompt, file_path=None, aspect_ratio="16:9", expand_prompt=True):
+    def generate(self, prompt, file_path=None, file_end_path=None, aspect_ratio="16:9", expand_prompt=True):
         url = f'{self.API_BASE}/api/photon/v1/generations/'
-        payload = self.prepare_generate(prompt, file_path, aspect_ratio, expand_prompt)
+        payload = self.prepare_generate(prompt, file_path, file_end_path, aspect_ratio, expand_prompt)
         logger.info(f'generate payload={json.dumps(payload, indent=2)}')
         resp = self.send_post_json(url, payload)
         return resp.json()[0]["id"]
@@ -160,7 +174,6 @@ class Sdk:
         self.check_resp(resp)
         cookies = resp.cookies.get_dict()
         self.update_cookies(cookies)
-        self.check_usage_and_update_cookies()
         return resp
 
     def send_get(self, url, headers=None):
@@ -198,6 +211,11 @@ class Sdk:
                 text = resp.text
                 logger.info(f'checkResp status=401, text={text}')
                 raise MyError(ErrCodes.NotLogin)
+            elif resp.status_code == 429:
+                text = resp.text
+                logger.info(f'checkResp status=429, text={text}')
+                self.remove_access_token()
+                raise MyError(ErrCodes.TooManyRequests, 'Too many requests, access token removed')
             else:
                 self.throw_resp_error(resp)
 
@@ -205,11 +223,6 @@ class Sdk:
         text = resp.text
         logger.info(f'checkResp status={resp.status_code} text={text[:1024]}')
         raise MyError(ErrCodes.UnknownError, f'HTTP {resp.status_code} {resp.reason}, body={text}')
-
-    def check_usage_and_update_cookies(self):
-        usage_data = self.usage()
-        if usage_data['available'] <= 10:
-            self.remove_access_token()
 
     def remove_access_token(self):
         self.cookies = [ck for ck in self.cookies if ck['name'] != 'access_token']
