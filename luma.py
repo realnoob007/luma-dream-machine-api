@@ -236,7 +236,7 @@ class Sdk:
         generations = self.get_generations()
         session = self.Session()
         for gen in generations:
-            if gen.video and 'url' in gen.video and gen.video['url']:  # Correctly check if video URL exists
+            if gen.video and gen.video.url:  # Correctly check if video URL exists
                 existing_gen = session.query(Generation).filter_by(id=gen.id).first()
                 if not existing_gen:
                     new_gen = Generation(
@@ -244,7 +244,7 @@ class Sdk:
                         prompt=gen.prompt,
                         state=gen.state,
                         created_at=datetime.strptime(gen.created_at, '%Y-%m-%dT%H:%M:%S.%fZ'),
-                        video_url=gen.video['url']
+                        video_url=gen.video.url
                     )
                     session.add(new_gen)
         session.commit()
