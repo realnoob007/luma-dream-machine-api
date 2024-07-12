@@ -245,9 +245,21 @@ class Sdk:
         return resp.json()
 
     def process_generations(self):
-        generations = self.get_generations()
+        all_generations = []
+        for cookie in self.cookies:
+            try:
+                logger.info(f"Using token: {cookie['value']}")
+                generations = self.get_generations_by_cookie(cookie)
+                all_generations.extend(generations)
+            except MyError as e:
+                if e.code == ErrCodes.NotLogin or e.code == ErrCodes.TooManyRequests:
+                    logger.info(f"Skipping token due to error: {e.message}")
+                    self.remove_access_token(cookie['value'])
+                else:
+                    raise e
+
         session = self.Session()
-        for gen in generations:
+        for gen in all_generations:
             if gen.video and gen.video.url:  # Correctly check if video URL exists
                 existing_gen = session.query(Generation).filter_by(id=gen.id).first()
                 if not existing_gen:
@@ -261,3 +273,38 @@ class Sdk:
                     session.add(new_gen)
         session.commit()
         session.close()
+
+    def get_generations_by_cookie(self, cookie):
+        url = f'{self.API_BASE}/api/photon/v1/user/generations/'
+        query = {"offset": "0", "limit": "10"}
+        u = urlparse(url)
+        u = u._replace(query=urlencode(query))
+        gi_list = []
+
+        try:
+            resp = self.send_get(urlunparse(u), cookies=[cookie])
+            items = resp.json()
+
+            for item in items:
+                if 'video' in item and item['video'] is not None:
+                    video = Video(**item['video'])
+                else:
+                    video = None
+                gi = GenerationItem(
+                    id=item['id'],
+                    prompt=item['prompt'],
+                    state=item['state'],
+                    created_at=item['created_at'],
+                    video=video,
+                    liked=item.get('liked'),
+                    estimate_wait_seconds=item.get('estimate_wait_seconds')
+                )
+                gi_list.append(gi)
+        except MyError as e:
+            if e.code == ErrCodes.NotLogin or e.code == ErrCodes.TooManyRequests:
+                logger.info(f"Skipping token due to error: {e.message}")
+                self.remove_access_token(cookie['value'])
+            else:
+                raise e
+
+        return gi_list
