@@ -97,20 +97,20 @@ class Sdk:
 
         return gi_list
 
-    def prepare_generate(self, prompt, file_path=None, expand_prompt=True):
+    def prepare_generate(self, prompt, file_path=None, aspect_ratio="16:9", expand_prompt=True):
         url = f'{self.API_BASE}/api/photon/v1/generations/'
         payload = {
             "user_prompt": prompt,
-            "aspect_ratio": "16:9",
+            "aspect_ratio": aspect_ratio,
             "expand_prompt": expand_prompt
         }
         if file_path:
             payload['image_url'] = self.upload_image(file_path)
         return payload
 
-    def generate(self, prompt, file_path=None, expand_prompt=True):
+    def generate(self, prompt, file_path=None, aspect_ratio="16:9", expand_prompt=True):
         url = f'{self.API_BASE}/api/photon/v1/generations/'
-        payload = self.prepare_generate(prompt, file_path, expand_prompt)
+        payload = self.prepare_generate(prompt, file_path, aspect_ratio, expand_prompt)
         logger.info(f'generate payload={json.dumps(payload, indent=2)}')
         resp = self.send_post_json(url, payload)
         return resp.json()[0]["id"]

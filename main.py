@@ -21,14 +21,19 @@ for token in access_tokens:
     sdk.add_access_token(token)
 
 @app.post("/api/v1/generate")
-def generate(user_prompt: Annotated[str, Form()], image: Annotated[UploadFile, File()] = None, expand_prompt: Annotated[bool, Form()] = False) -> str:
+def generate(
+    user_prompt: Annotated[str, Form()],
+    aspect_ratio: Annotated[str, Form()] = '16:9',
+    image: Annotated[UploadFile, File()] = None,
+    expand_prompt: Annotated[bool, Form()] = False
+) -> str:
     image_path = None
     if image:
         suffix = os.path.splitext(image.filename)[1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
             tmp_file.write(image.file.read())
             image_path = tmp_file.name
-    return sdk.generate(user_prompt, image_path, expand_prompt)
+    return sdk.generate(user_prompt, image_path, aspect_ratio, expand_prompt)
 
 @app.get('/api/v1/generations')
 def get_generations() -> List[GenerationItem]:
