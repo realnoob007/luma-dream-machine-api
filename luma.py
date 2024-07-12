@@ -5,6 +5,10 @@ import mimetypes
 import requests
 from urllib.parse import urljoin, urlparse, urlencode, urlunparse
 from requests.structures import CaseInsensitiveDict
+from sqlalchemy import create_engine, Column, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
 from api_types import GenerationItem
 from util import update_cookies
@@ -13,17 +17,24 @@ from util import update_cookies
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+Base = declarative_base()
+
+class Generation(Base):
+    __tablename__ = 'generations'
+    id = Column(String, primary_key=True)
+    prompt = Column(String)
+    state = Column(String)
+    created_at = Column(DateTime)
+    video_url = Column(String)
 
 class ErrCodes:
     NotLogin = 401
     UnknownError = 500
 
-
 class MyError(Exception):
     def __init__(self, code, message=None):
         self.code = code
         self.message = message
-
 
 class Sdk:
     headers = {
@@ -59,15 +70,13 @@ class Sdk:
             with open(self.cookies_file, 'r', encoding='utf8') as f:
                 self.cookies = json.load(f)
 
+        self.engine = create_engine('sqlite:///generations.db')
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
 
     def save_cookies(self, cookies):
         with open(self.cookies_file, 'w', encoding='utf8') as f:
             json.dump(cookies, f, indent=2)
-
-    def extend(self, video_id, params):
-        url = f'{self.API_BASE}/api/photon/v1/generations/{video_id}/extend'
-        resp = self.send_post_json(url, params)
-        return resp.json()
 
     def add_access_token(self, access_token):
         cookie = {'name': 'access_token', 'value': access_token, 'domain': 'internal-api.virginia.labs.lumalabs.ai', 'path': '/', 'secure': True, 'httpOnly': True, 'sameSite': 'None'}
@@ -81,7 +90,6 @@ class Sdk:
         resp = self.send_get(urlunparse(u))
         items = resp.json()
 
-        # GenerationItem
         gi_list: list[GenerationItem] = []
         for item in items:
             gi = GenerationItem(**item)
@@ -122,7 +130,7 @@ class Sdk:
 
     def get_signed_upload(self, filename):
         url = f'{self.API_BASE}/api/photon/v1/generations/file_upload'
-        params = {'file_type': 'image', 'filename': 'file.jpg'}
+        params = {'file_type': 'image', 'filename': filename}
         u = urlparse(url)
         u = u._replace(query=urlencode(params))
         resp = self.send_post(urlunparse(u))
@@ -143,7 +151,8 @@ class Sdk:
         return self.send_post(url, headers=headers, body=json.dumps(body))
 
     def send_post(self, url, headers=None, body=None, method='POST'):
-        headers = {**self.headers, **headers}
+        headers = headers or {}
+        headers = {**self.headers, **headers} if headers else self.headers
         headers['cookie'] = self.get_cookie_str()
         logger.info(f'sendPost url={url}')
         resp = requests.request(method, url, headers=headers, data=body)
@@ -151,6 +160,7 @@ class Sdk:
         self.check_resp(resp)
         cookies = resp.cookies.get_dict()
         self.update_cookies(cookies)
+        self.check_usage_and_update_cookies()
         return resp
 
     def send_get(self, url, headers=None):
@@ -161,7 +171,6 @@ class Sdk:
         resp = requests.get(url, headers=headers)
         logger.debug(f'sendGet response({resp.status_code}), url={url}')
         self.check_resp(resp)
-        # cookies = resp.cookies.get_dict()
         self.update_cookies(resp.cookies)
         return resp
 
@@ -170,8 +179,6 @@ class Sdk:
             {'name': c.name, 'value': c.value, 'domain': c.domain, 'path': c.path}
             for c in cookies
         ]
-        # cookies_list = [{'name': k, 'value': v} for k, v in cookies.items()]
-        # print(cookies)
         self.cookies = update_cookies(self.cookies, cookies)
         self.after_cookies_updated_callback(self.cookies)
 
@@ -199,7 +206,33 @@ class Sdk:
         logger.info(f'checkResp status={resp.status_code} text={text[:1024]}')
         raise MyError(ErrCodes.UnknownError, f'HTTP {resp.status_code} {resp.reason}, body={text}')
 
+    def check_usage_and_update_cookies(self):
+        usage_data = self.usage()
+        if usage_data['available'] <= 10:
+            self.remove_access_token()
+
+    def remove_access_token(self):
+        self.cookies = [ck for ck in self.cookies if ck['name'] != 'access_token']
+
     def usage(self):
         url = f'{self.API_BASE}/api/photon/v1/subscription/usage'
         resp = self.send_get(url)
         return resp.json()
+
+    def process_generations(self):
+        generations = self.get_generations()
+        session = self.Session()
+        for gen in generations:
+            if gen.video and 'url' in gen.video and gen.video['url']:  # Correctly check if video URL exists
+                existing_gen = session.query(Generation).filter_by(id=gen.id).first()
+                if not existing_gen:
+                    new_gen = Generation(
+                        id=gen.id,
+                        prompt=gen.prompt,
+                        state=gen.state,
+                        created_at=datetime.strptime(gen.created_at, '%Y-%m-%dT%H:%M:%S.%fZ'),
+                        video_url=gen.video['url']
+                    )
+                    session.add(new_gen)
+        session.commit()
+        session.close()
